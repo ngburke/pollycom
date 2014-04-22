@@ -8,4 +8,4 @@ Tested with Python 3.3.
 Polly is still in prototyping phase, more information to come.
 
 
-[BIP0032]: https://en.bitcoin.it/wiki/BIP_0032
+[BIP0032]: https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki

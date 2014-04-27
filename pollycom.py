@@ -94,7 +94,7 @@ class PollyCom:
             PollyCom.dev = hid.device()
             
             try:
-                print ("Connecting to Polly")
+                print ("Connecting to Polly...")
                 
                 PollyCom.dev.open(POLLY_VID, POLLY_DID)
                 
@@ -102,7 +102,6 @@ class PollyCom:
 
                 model = self.send_identify()
 
-                print ("Connection established")
                 print (" Manufacturer : %s" % PollyCom.dev.get_manufacturer_string())
                 print (" Product      : %s" % PollyCom.dev.get_product_string())
                 print (" Serial No    : %s" % PollyCom.dev.get_serial_number_string())
@@ -169,7 +168,7 @@ class PollyCom:
                cmd      == CMD_ACK_SUCCESS, "send_set_master_seed : FAILED"
     
         
-    def send_get_public_key(self, key_num, master = 0):
+    def send_get_public_key(self, key_num, master = False):
         """
         Sends the get public key command and waits for the key.
         

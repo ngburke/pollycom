@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Communication module for interfacing with the Polly hardware Bitcoin wallet.
+Communication module for interfacing with Polly, a deterministic Bitcoin hardware wallet adhering to BIP32. 
 
 Requires the HID API for USB communications.
 
@@ -58,6 +58,7 @@ CMD_SIMPLE_BYTES               = 1
 CMD_IDENTIFY_RESP_BYTES        = 17
 CMD_GET_PUBLIC_KEY_RESP_BYTES  = 65
 CMD_GET_PUBLIC_KEY_BYTES       = 6
+CMD_SET_MASTER_SEED_MIN_BYTES  = 16
 CMD_SET_MASTER_SEED_MAX_BYTES  = 64
 
 # USB packet size
@@ -94,7 +95,8 @@ class PollyCom:
             PollyCom.dev = hid.device()
             
             try:
-                print ("Connecting to Polly...")
+                print ("Connecting to Polly")
+                print ("-------------------")
                 
                 PollyCom.dev.open(POLLY_VID, POLLY_DID)
                 
@@ -123,7 +125,7 @@ class PollyCom:
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytearray(data))
+        cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd      == CMD_ACK_SUCCESS, "send_reset : FAILED"
@@ -139,7 +141,7 @@ class PollyCom:
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd, idstr = unpack('<HB16s', bytearray(data))
+        cmd_bytes, cmd, idstr = unpack('<HB16s', bytes(data))
     
         assert cmd_bytes == CMD_IDENTIFY_RESP_BYTES and\
                cmd      == CMD_IDENTIFY, "send_get_id : FAILED"
@@ -154,6 +156,7 @@ class PollyCom:
         seed - byte object containing a seed, maximum of 64 bytes
         """
         
+        assert len(seed) >= CMD_SET_MASTER_SEED_MIN_BYTES, "send_set_master_seed : Seed too short"
         assert len(seed) <= CMD_SET_MASTER_SEED_MAX_BYTES, "send_set_master_seed : Seed too long"
 
         # Send
@@ -162,7 +165,7 @@ class PollyCom:
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytearray(data))
+        cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd      == CMD_ACK_SUCCESS, "send_set_master_seed : FAILED"
@@ -185,7 +188,7 @@ class PollyCom:
         # Receive
         data = self.get_data()
     
-        cmd_bytes, cmd, pub_x, pub_y = unpack('HB32s32s', bytearray(data))
+        cmd_bytes, cmd, pub_x, pub_y = unpack('HB32s32s', bytes(data))
     
         assert cmd_bytes == CMD_GET_PUBLIC_KEY_RESP_BYTES, "send_get_public_key : FAILED"
     
@@ -235,7 +238,7 @@ class PollyCom:
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytearray(data))
+        cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd      == CMD_ACK_SUCCESS, "send_sign_tx : FAILED"
@@ -278,7 +281,7 @@ class PollyCom:
         # Receive
         data = self.get_data()
     
-        cmd_bytes, cmd = unpack('<HB', bytearray(data))
+        cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd      == CMD_ACK_SUCCESS, "send_prev_tx : FAILED"
@@ -300,12 +303,12 @@ class PollyCom:
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytearray(data[0:3]))
+        cmd_bytes, cmd = unpack('<HB', bytes(data[0:3]))
     
         assert cmd == CMD_GET_SIGNED_TX, "send_get_signed_tx: invalid response, command incorrect"
         
         # Strip away the command and command bytes, just return the signed tx
-        return bytearray(data[3:(3 + cmd_bytes)])
+        return bytes(data[3:(3 + cmd_bytes)])
 
 
     def get_cmd_time(self):
@@ -313,7 +316,7 @@ class PollyCom:
         Returns the time in seconds to execute the last command.
         """
         
-        return"{0:.3f}s".format(self.t) 
+        return "{0:.3f}s".format(self.t) 
 
 
     def send_data(self, data, stream = False):
@@ -414,11 +417,6 @@ class PollyCom:
             print ("")
 
 def main():
-    """
-    Executed when the module is run standalone.
-    """
-    
-    print()
     PollyCom() 
 
 if __name__ == '__main__':

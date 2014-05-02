@@ -95,6 +95,7 @@ class PollyCom:
             PollyCom.dev = hid.device()
             
             try:
+                print()
                 print ("Connecting to Polly")
                 print ("-------------------")
                 

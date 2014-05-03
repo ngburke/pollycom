@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/python
+
 """
 Communication module for interfacing with Polly, a deterministic Bitcoin hardware wallet adhering to BIP32. 
 
@@ -129,7 +130,7 @@ class PollyCom:
         cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
-               cmd      == CMD_ACK_SUCCESS, "send_reset : FAILED"
+               cmd       == CMD_ACK_SUCCESS, "send_reset : FAILED"
     
     def send_identify(self):
         """
@@ -145,7 +146,7 @@ class PollyCom:
         cmd_bytes, cmd, idstr = unpack('<HB16s', bytes(data))
     
         assert cmd_bytes == CMD_IDENTIFY_RESP_BYTES and\
-               cmd      == CMD_IDENTIFY, "send_get_id : FAILED"
+               cmd       == CMD_IDENTIFY, "send_get_id : FAILED"
     
         return ''.join(map(chr,idstr))
     
@@ -332,11 +333,11 @@ class PollyCom:
         # Start the timer here, it will be stopped in get_data 
         self.t = time.clock()
     
-        remainBytes = (data[1] << 8) + data[0];
+        remain_bytes = (data[1] << 8) + data[0];
     
         # The command bytes count, plus the control byte
-        sendBytes = min(remainBytes + 2, WRITE_SIZE - 1)
-        sendPos = 0
+        send_bytes = min(remain_bytes + 2, WRITE_SIZE - 1)
+        send_pos = 0
         
         if not stream :
             ctrl_start = CTRL_START
@@ -345,25 +346,24 @@ class PollyCom:
             ctrl_start = CTRL_START_STREAM
             ctrl_cont  = CTRL_CONT_STREAM
     
-        send = [0x00, ctrl_start]
-        send += data[sendPos : sendBytes]
+        send = bytes([0x00, ctrl_start]) + data[send_pos : send_bytes]
         
         PollyCom.dev.write(send)
     
-        sendPos = sendBytes
-        remainBytes -= sendBytes - 2
+        send_pos = send_bytes
+        remain_bytes -= send_bytes - 2
     
         # Send out the rest
-        while (remainBytes > 0):
-            sendBytes = min(remainBytes, WRITE_SIZE - 1)
+        while (remain_bytes > 0):
+
+            send_bytes = min(remain_bytes, WRITE_SIZE - 1)
     
-            send = [0x00, ctrl_cont]
-            send += data[sendPos : sendPos+sendBytes]
+            send = bytes([0x00, ctrl_cont]) + data[send_pos : send_pos+send_bytes]
     
             PollyCom.dev.write(send)
     
-            sendPos += sendBytes
-            remainBytes -= sendBytes
+            send_pos += send_bytes
+            remain_bytes -= send_bytes
 
     def get_data(self):
         """
@@ -379,25 +379,25 @@ class PollyCom:
         assert tmp[0] == CTRL_START, "invalid control token, expecting CTRL_START"
     
         # The command bytes count, plus the command bytes count field itself
-        remainBytes = (tmp[2] << 8) + tmp[1] + 2 
+        remain_bytes = (tmp[2] << 8) + tmp[1] + 2 
     
-        readBytes = min(remainBytes, READ_SIZE - 1)
-        data = tmp[1:readBytes+1]
+        read_bytes = min(remain_bytes, READ_SIZE - 1)
+        data = tmp[1:read_bytes+1]
     
-        remainBytes = remainBytes - readBytes
+        remain_bytes = remain_bytes - read_bytes
     
         # Read in the rest
-        while (remainBytes > 0):
+        while (remain_bytes > 0):
             
             tmp = PollyCom.dev.read(READ_SIZE, READ_TIMEOUT_MS)
             
             assert tmp, "read timeout"
             assert tmp[0] == CTRL_CONT, "invalid control token, expecting CTRL_CONT"
             
-            readBytes = min(remainBytes, READ_SIZE - 1)
-            data += tmp[1:readBytes+1]
+            read_bytes = min(remain_bytes, READ_SIZE - 1)
+            data += tmp[1:read_bytes+1]
             
-            remainBytes -= readBytes
+            remain_bytes -= read_bytes
     
         # Calculate the time delta between send_data and get_data (the total command time)
         self.t = time.clock() - self.t;

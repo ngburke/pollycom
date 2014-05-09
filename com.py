@@ -59,8 +59,7 @@ CMD_SIMPLE_BYTES               = 1
 CMD_IDENTIFY_RESP_BYTES        = 17
 CMD_GET_PUBLIC_KEY_RESP_BYTES  = 65
 CMD_GET_PUBLIC_KEY_BYTES       = 6
-CMD_SET_MASTER_SEED_MIN_BYTES  = 16
-CMD_SET_MASTER_SEED_MAX_BYTES  = 64
+CMD_SET_MASTER_SEED_MAX_BYTES  = ((18 * 8) + 7)  # 18 words, max 8 chars per word, 7 spaces
 
 # USB packet size
 READ_SIZE   = 64
@@ -151,22 +150,24 @@ class PollyCom:
         return ''.join(map(chr,idstr))
     
     
-    def send_set_master_seed(self, seed):
+    def send_set_master_seed(self, wordlist):
         """
         Sends the set master seed command and waits for an ACK.
         
-        seed - byte object containing a seed, maximum of 64 bytes
+        wordlist -  a space separated string of 18 mnemonic words from the Polly wordlist.
+                    Note: the checksum must be correct (part of the 18th word) - see BIP0039.
+                    gen_wordlist can be used to generate a wordlist including the proper checksum.
         """
         
-        assert len(seed) >= CMD_SET_MASTER_SEED_MIN_BYTES, "send_set_master_seed : Seed too short"
-        assert len(seed) <= CMD_SET_MASTER_SEED_MAX_BYTES, "send_set_master_seed : Seed too long"
+        assert len(wordlist.split(" ")) == 18, "expecting 18 words"
+        assert len(wordlist) <= CMD_SET_MASTER_SEED_MAX_BYTES, "seed too long, must have invalid words"
 
         # Send
-        data = pack('<HB' + str(len(seed)) + 's', 1 + len(seed), CMD_SET_MASTER_SEED, seed)
+        data = pack('<HB' + str(len(wordlist)) + 's', 1 + len(wordlist), CMD_SET_MASTER_SEED, bytes(wordlist, 'utf-8'))
         self.send_data(data)
     
         # Receive
-        data = self.get_data()
+        data = self.get_data(60000)
         cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
@@ -365,7 +366,7 @@ class PollyCom:
             send_pos += send_bytes
             remain_bytes -= send_bytes
 
-    def get_data(self):
+    def get_data(self, timeout = READ_TIMEOUT_MS):
         """
         Gets raw data from Polly via USB, typically the command specific functions are used instead of this.
         
@@ -373,7 +374,7 @@ class PollyCom:
         """ 
         
         # Read in the first chunk
-        tmp = PollyCom.dev.read(READ_SIZE, READ_TIMEOUT_MS)
+        tmp = PollyCom.dev.read(READ_SIZE, timeout)
         
         assert tmp, "read timeout"
         assert tmp[0] == CTRL_START, "invalid control token, expecting CTRL_START"
@@ -389,7 +390,7 @@ class PollyCom:
         # Read in the rest
         while (remain_bytes > 0):
             
-            tmp = PollyCom.dev.read(READ_SIZE, READ_TIMEOUT_MS)
+            tmp = PollyCom.dev.read(READ_SIZE, timeout)
             
             assert tmp, "read timeout"
             assert tmp[0] == CTRL_CONT, "invalid control token, expecting CTRL_CONT"

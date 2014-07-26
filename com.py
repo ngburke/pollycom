@@ -31,6 +31,8 @@ THE SOFTWARE.
 
 import sys
 import hid
+import serial
+from serial.tools import list_ports
 import time
 
 from struct import pack, unpack
@@ -39,20 +41,22 @@ from struct import pack, unpack
 POLLY_VID  = 0x0451
 POLLY_DID  = 0x16C9
 
-# Commands
-CMD_RESET            = 1
-CMD_IDENTIFY         = 2
-CMD_GET_PUBLIC_KEY   = 3
+# Commands                  # Response (assuming properly formed command)
+CMD_RESET             = 1   # SUCCESS
+CMD_IDENTIFY          = 2   # SUCCESS
+CMD_GET_PUBLIC_KEY    = 3   # SUCCESS, INVALID
 
-CMD_SIGN_TX          = 4
-CMD_PREV_TX          = 5
-CMD_GET_SIGNED_TX    = 6
+CMD_SIGN_TX           = 4   # SUCCESS, INVALID
+CMD_PREV_TX           = 5   # SUCCESS, INVALID
+CMD_GET_SIGNED_TX     = 6   # SUCCESS, INVALID, USER, DENIED, BUSY
 
-CMD_SET_MASTER_SEED  = 11
+CMD_SET_MASTER_SEED   = 11  # SUCCESS, INVALID
 
-CMD_ACK_SUCCESS      = 32
-CMD_ACK_INVALID      = 33
-CMD_ACK_DENIED       = 34
+CMD_ACK_SUCCESS       = 32
+CMD_ACK_INVALID       = 33
+CMD_ACK_DENIED        = 34
+CMD_ACK_USER          = 35
+CMD_ACK_BUSY          = 36
 
 # Command payloads
 CMD_SIMPLE_BYTES               = 1
@@ -61,9 +65,8 @@ CMD_GET_PUBLIC_KEY_RESP_BYTES  = 65
 CMD_GET_PUBLIC_KEY_BYTES       = 6
 CMD_SET_MASTER_SEED_MAX_BYTES  = ((18 * 8) + 7)  # 18 words, max 8 chars per word, 7 spaces
 
-# USB packet size
-READ_SIZE   = 64
-WRITE_SIZE  = 64
+# Packet size
+PACKET_BYTES = 64
 
 # Control flow
 CTRL_START         = 0x80
@@ -72,48 +75,105 @@ CTRL_START_STREAM  = 0xC0
 CTRL_CONT_STREAM   = 0xC8
 
 # Default command timeout
-READ_TIMEOUT_MS  = 10000
+READ_TIMEOUT_MS  = 100000
 
 class PollyCom:
     """ 
     Class for communication with the Polly hardware Bitcoin wallet.
     """
     
-    # USB device handle
+    # General device handle, could be USB or Bluetooth serial
     dev = None
     
-    def __init__(self, scan = False):
+    # String for the handle type ('usb' or 'bluetooth')
+    devtype = None
+
+    
+    def __init__(self, usbscan = False):
         
         # Tracks time to execute commands on Polly 
         self.t = 0
         
-        if True == scan:
-            self.__usb_scan()
-        
         # Make a connection with Polly
         if None == PollyCom.dev :
+            
+            print ()
+            print ("Connecting to Polly")
+            print ("-------------------")
+            print ()
+            
+            print ("Trying USB : ", end = '')
             PollyCom.dev = hid.device()
             
             try:
-                print()
-                print ("Connecting to Polly")
-                print ("-------------------")
-                
+                raise IOError("ok")
+            
+                if True == usbscan:
+                    self.__usb_scan()
+        
                 PollyCom.dev.open(POLLY_VID, POLLY_DID)
+                PollyCom.devtype = 'usb'
                 
                 # TODO flush out any previous command data
-
+                
                 model = self.send_identify()
-
-                print (" Manufacturer : %s" % PollyCom.dev.get_manufacturer_string())
-                print (" Product      : %s" % PollyCom.dev.get_product_string())
-                print (" Serial No    : %s" % PollyCom.dev.get_serial_number_string())
-                print (" Model        : %s" % model)
-            
+                
+                if 'Polly' in model:
+                
+                    print ("found")
+                    print ()
+                    print (" Manufacturer : %s" % PollyCom.dev.get_manufacturer_string())
+                    print (" Product      : %s" % PollyCom.dev.get_product_string())
+                    print (" Serial No    : %s" % PollyCom.dev.get_serial_number_string())
+                    print (" Model        : %s" % model)
+                
+                    return
+                
+                else:
+                    raise IOError()
+                
             except IOError:
-                print("\n ERROR: Unable to connect")
-                raise
+                print ("not found")
+
+
+            # Look at all the Bluetooth serial ports                
+            ports = list_ports.comports()
+            PollyCom.devtype = 'bluetooth'
+            bt_com = False
+
+            for port, name, _ in ports:
+                
+                if 'BLUETOOTH' in name.upper():
+                    
+                    bt_com = True
+                    
+                    print ("Trying Bluetooth serial", port, ": ",  end = '')
+                    
+                    try:
+                        PollyCom.dev = serial.Serial(port, 115200, timeout = 3, writeTimeout = 3)
+                        
+                        # TODO flush out any previous command data
+                        
+                        model = self.send_identify()
+                        
+                        if 'Polly' in model:
+                            print ("found")
+                            print ()
+                            print (" Model : %s" % model)
+                            
+                            PollyCom.devtype = 'bluetooth'
+                            return
+                        
+                    except IOError:
+                        # Unable to connect
+                        print ("not found")
             
+            if False == bt_com:
+                print ("Trying Bluetooth serial : no Bluetooth COM ports found")
+                
+                    
+        print ("\n ERROR: Polly not found")
+        raise Exception('Polly not found')
 
     def send_reset(self):
         """
@@ -145,7 +205,7 @@ class PollyCom:
         cmd_bytes, cmd, idstr = unpack('<HB16s', bytes(data))
     
         assert cmd_bytes == CMD_IDENTIFY_RESP_BYTES and\
-               cmd       == CMD_IDENTIFY, "send_get_id : FAILED"
+               cmd       == CMD_ACK_SUCCESS, "send_get_id : FAILED"
     
         return ''.join(map(chr,idstr))
     
@@ -167,11 +227,11 @@ class PollyCom:
         self.send_data(data)
     
         # Receive
-        data = self.get_data(60000)
+        data = self.get_data()
         cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
-               cmd      == CMD_ACK_SUCCESS, "send_set_master_seed : FAILED"
+               cmd       == CMD_ACK_SUCCESS, "send_set_master_seed : FAILED"
     
         
     def send_get_public_key(self, key_num, master = False):
@@ -195,7 +255,7 @@ class PollyCom:
     
         assert cmd_bytes == CMD_GET_PUBLIC_KEY_RESP_BYTES, "send_get_public_key : FAILED"
     
-        if cmd == CMD_GET_PUBLIC_KEY:
+        if cmd == CMD_ACK_SUCCESS:
             return int.from_bytes(pub_x, 'big'), int.from_bytes(pub_y, 'big')   
         
         return 0, 0
@@ -244,7 +304,7 @@ class PollyCom:
         cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
-               cmd      == CMD_ACK_SUCCESS, "send_sign_tx : FAILED"
+               cmd       == CMD_ACK_SUCCESS, "send_sign_tx : FAILED"
 
     
     def send_prev_tx(self, in_idx_out_idx, prev_tx_data):
@@ -287,7 +347,7 @@ class PollyCom:
         cmd_bytes, cmd = unpack('<HB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
-               cmd      == CMD_ACK_SUCCESS, "send_prev_tx : FAILED"
+               cmd       == CMD_ACK_SUCCESS, "send_prev_tx : FAILED"
 
     
     def send_get_signed_tx(self):
@@ -300,18 +360,34 @@ class PollyCom:
         Returns a complete signed tx.
         """
     
-        # Send
-        data = pack('<HB', CMD_SIMPLE_BYTES, CMD_GET_SIGNED_TX)
-        self.send_data(data)
-    
-        # Receive
-        data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytes(data[0:3]))
-    
-        assert cmd == CMD_GET_SIGNED_TX, "send_get_signed_tx: invalid response, command incorrect"
+        while True:
+            
+            # Send
+            data = pack('<HB', CMD_SIMPLE_BYTES, CMD_GET_SIGNED_TX)
+            self.send_data(data)
+            
+            # Receive
+            data = self.get_data()
+            cmd_bytes, cmd = unpack('<HB', bytes(data[0:3]))
+            
+            # SUCCESS, INVALID, USER, DENIED, BUSY
+            
+            if cmd == CMD_ACK_SUCCESS:
+                # Strip away the command and command bytes, just return the signed tx
+                return bytes(data[3:(3 + cmd_bytes)])
+            
+            elif cmd == CMD_ACK_INVALID:
+                assert 0, "send_get_signed_tx: invalid response, command incorrect"
         
-        # Strip away the command and command bytes, just return the signed tx
-        return bytes(data[3:(3 + cmd_bytes)])
+            elif cmd == CMD_ACK_USER:
+                pass
+            elif cmd == CMD_ACK_BUSY:
+                pass
+                
+            elif cmd == CMD_ACK_DENIED: 
+                assert 0, "send_get_signed_tx: user denied the signing"
+                
+            time.sleep(0.5)
 
 
     def get_cmd_time(self):
@@ -326,7 +402,7 @@ class PollyCom:
         """
         Sends raw data to Polly via USB, typically the command specific functions are used instead of this.
         
-        data   - raw byte array to send. Packetization is done by this routine. 
+        data   - raw byte array to packet. Packetization and padding is done by this routine. 
         stream - use stream flow control if True, or normal control if False
         """ 
     
@@ -334,37 +410,42 @@ class PollyCom:
         # Start the timer here, it will be stopped in get_data 
         self.t = time.clock()
     
-        remain_bytes = (data[1] << 8) + data[0];
-    
-        # The command bytes count, plus the control byte
-        send_bytes = min(remain_bytes + 2, WRITE_SIZE - 1)
-        send_pos = 0
-        
         if not stream :
             ctrl_start = CTRL_START
             ctrl_cont  = CTRL_CONT
         else:
             ctrl_start = CTRL_START_STREAM
             ctrl_cont  = CTRL_CONT_STREAM
-    
-        send = bytes([0x00, ctrl_start]) + data[send_pos : send_bytes]
-        
-        PollyCom.dev.write(send)
-    
-        send_pos = send_bytes
-        remain_bytes -= send_bytes - 2
-    
-        # Send out the rest
-        while (remain_bytes > 0):
+            
+        ctrl_byte = ctrl_start
 
-            send_bytes = min(remain_bytes, WRITE_SIZE - 1)
+        # The command byte count in the data does not include itself, hence the +2
+        data_bytes_remain = (data[1] << 8) + data[0] + 2;
+        data_offset       = 0
+        
+        # Send out the data
+        while (data_bytes_remain > 0):
+
+            # Room must be left for the control flow byte, hence PACKET_BYTES - 1  
+            data_bytes = min(data_bytes_remain, PACKET_BYTES - 1)
     
-            send = bytes([0x00, ctrl_cont]) + data[send_pos : send_pos+send_bytes]
+            packet = bytes([ctrl_byte]) + data[data_offset : data_offset + data_bytes]
+            
+            # Pad out the packet if it is < PACKET_BYTES
+            if len(packet) < PACKET_BYTES:
+                packet = packet + bytes(PACKET_BYTES - len(packet))
+            
+            # USB needs the preamble byte, it is stripped off by Polly upon reception
+            if PollyCom.devtype == 'usb': 
+                packet = b'\x00' + packet
     
-            PollyCom.dev.write(send)
+            PollyCom.dev.write(packet)
     
-            send_pos += send_bytes
-            remain_bytes -= send_bytes
+            data_offset       += data_bytes
+            data_bytes_remain -= data_bytes
+            
+            ctrl_byte = ctrl_cont
+
 
     def get_data(self, timeout = READ_TIMEOUT_MS):
         """
@@ -373,32 +454,41 @@ class PollyCom:
         Returns a single raw byte array with flow control bytes stripped.
         """ 
         
+        data = []
+        
         # Read in the first chunk
-        tmp = PollyCom.dev.read(READ_SIZE, timeout)
+        if (PollyCom.devtype == 'usb'):
+            tmp = PollyCom.dev.read(PACKET_BYTES, timeout)
+        else:
+            tmp = PollyCom.dev.read(PACKET_BYTES)
         
         assert tmp, "read timeout"
         assert tmp[0] == CTRL_START, "invalid control token, expecting CTRL_START"
     
         # The command bytes count, plus the command bytes count field itself
-        remain_bytes = (tmp[2] << 8) + tmp[1] + 2 
-    
-        read_bytes = min(remain_bytes, READ_SIZE - 1)
-        data = tmp[1:read_bytes+1]
-    
-        remain_bytes = remain_bytes - read_bytes
-    
+        data_bytes = (tmp[2] << 8) + tmp[1] + 2 
+        
         # Read in the rest
-        while (remain_bytes > 0):
+        while True:
             
-            tmp = PollyCom.dev.read(READ_SIZE, timeout)
+            # Stripping off the control byte, hence PACKET_BYTES - 1
+            read_bytes = min(data_bytes, PACKET_BYTES - 1)
+            
+            # Strip off the control byte
+            data += tmp[1 : read_bytes + 1]
+            
+            data_bytes -= read_bytes
+            
+            if data_bytes < 1 :
+                break
+            
+            if (PollyCom.devtype == 'usb'):
+                tmp = PollyCom.dev.read(PACKET_BYTES, timeout)
+            else:
+                tmp = PollyCom.dev.read(PACKET_BYTES)
             
             assert tmp, "read timeout"
             assert tmp[0] == CTRL_CONT, "invalid control token, expecting CTRL_CONT"
-            
-            read_bytes = min(remain_bytes, READ_SIZE - 1)
-            data += tmp[1:read_bytes+1]
-            
-            remain_bytes -= read_bytes
     
         # Calculate the time delta between send_data and get_data (the total command time)
         self.t = time.clock() - self.t;
@@ -417,6 +507,18 @@ class PollyCom:
                 print ("%s : %s" % (key, d[key]))
                 
             print ("")
+
+def blueserial():
+    ser = serial.Serial("COM3", 115200)
+    ser.write(bytearray("$$$", 'ascii'))
+    
+    ser.timeout = 1
+    
+    data = ser.read(1000)
+    print(str(data))
+    
+    ser.close()
+        
 
 def main():
     PollyCom() 

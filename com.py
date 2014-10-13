@@ -62,7 +62,7 @@ CMD_ACK_BUSY          = 36
 CMD_SIMPLE_BYTES               = 1
 CMD_IDENTIFY_RESP_BYTES        = 17
 CMD_GET_PUBLIC_KEY_RESP_BYTES  = 65
-CMD_GET_PUBLIC_KEY_BYTES       = 6
+CMD_GET_PUBLIC_KEY_BYTES       = 8
 CMD_SET_MASTER_SEED_MAX_BYTES  = ((18 * 8) + 7)  # 18 words, max 8 chars per word, 7 spaces
 
 # Packet size
@@ -88,6 +88,10 @@ class PollyCom:
     # String for the handle type ('usb' or 'bluetooth')
     devtype = None
 
+    KEY_MASTER  = 0
+    KEY_ACCOUNT = 1
+    KEY_CHAIN   = 2
+    KEY_ADDRESS = 3
     
     def __init__(self, usbscan = False):
         
@@ -234,18 +238,22 @@ class PollyCom:
                cmd       == CMD_ACK_SUCCESS, "send_set_master_seed : FAILED"
     
         
-    def send_get_public_key(self, key_num, master = False):
+    def send_get_public_key(self, keytype, account, chain, address):
         """
         Sends the get public key command and waits for the key.
         
-        key_num - retrieve the public key for this key number (0 - 0x7FFF_FFFF).
-        master  - if set to 1, the master public key is retrieved and key_num is ignored.
+        keytype - Type of key to retrieve, valid values are KEY_MASTER, KEY_ACCOUNT, KEY_CHAIN, or KEY_ADDRESS.
+        account - Account to use for type KEY_ACCOUNT|CHAIN|ADDRESS.
+        chain   - Chain to use for type KEY_CHAIN|ADDRESS.
+        address - Index (0 - 0x7FFF_FFFF) to use for type KEY_ADDRESS.
         
         Returns a public elliptic curve key in the form (x,y). (0,0) indicates a failure occured.
         """
         
+        assert address < 0x80000000, "hardened address keys are not supported"
+        
         # Send
-        data = pack('<HBBL', CMD_GET_PUBLIC_KEY_BYTES, CMD_GET_PUBLIC_KEY, master, key_num)
+        data = pack('<HBBBBL', CMD_GET_PUBLIC_KEY_BYTES, CMD_GET_PUBLIC_KEY, keytype, account, chain, address)
         self.send_data(data)
     
         # Receive
@@ -281,17 +289,16 @@ class PollyCom:
         # Number of inputs
         data = pack('B', len(in_key_num_pubkey))
     
-        # Input key ids and their public keys
+        # Input key ids and their public keys, assuming a m/0h/0/in_key_num path
         for in_key_num, in_key_pubkey in in_key_num_pubkey:
-            data = data + pack('<I',   in_key_num)
-            data = data + pack('<33s', in_key_pubkey)
+            data = data + pack('<BBI33s', 0, 0, in_key_num, in_key_pubkey)
     
         # Output address
         data = data + pack('<20sQ', out_addr_160, out_satoshi)
     
-        # Change address (optional)
+        # Change address (optional), assuming an m/0h/1/change_key_num path
         if change_key_num != None:
-            data = data + pack('<IQ', change_key_num, change_satoshi)
+            data = data + pack('<BBIQ', 0, 1, change_key_num, change_satoshi)
     
         # Command id and number of bytes
         data = pack('<HB', len(data) + 1, CMD_SIGN_TX) + data

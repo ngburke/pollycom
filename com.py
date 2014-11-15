@@ -61,7 +61,7 @@ CMD_ACK_BUSY          = 36
 # Command payloads
 CMD_SIMPLE_BYTES               = 1
 CMD_IDENTIFY_RESP_BYTES        = 17
-CMD_GET_PUBLIC_KEY_RESP_BYTES  = 65
+CMD_GET_PUBLIC_KEY_RESP_BYTES  = 65 + 32 
 CMD_GET_PUBLIC_KEY_BYTES       = 8
 CMD_SET_MASTER_SEED_MAX_BYTES  = ((18 * 8) + 7)  # 18 words, max 8 chars per word, 7 spaces
 
@@ -247,7 +247,7 @@ class PollyCom:
         chain   - Chain to use for type KEY_CHAIN|ADDRESS.
         address - Index (0 - 0x7FFF_FFFF) to use for type KEY_ADDRESS.
         
-        Returns a public elliptic curve key in the form (x,y). (0,0) indicates a failure occured.
+        Returns a extended public key in the form (x,y,chaincode). (0,0) indicates a failure occured.
         """
         
         assert address < 0x80000000, "hardened address keys are not supported"
@@ -259,14 +259,14 @@ class PollyCom:
         # Receive
         data = self.get_data()
     
-        cmd_bytes, cmd, pub_x, pub_y = unpack('HB32s32s', bytes(data))
+        cmd_bytes, cmd, pub_x, pub_y, chaincode = unpack('HB32s32s32s', bytes(data))
     
         assert cmd_bytes == CMD_GET_PUBLIC_KEY_RESP_BYTES, "send_get_public_key : FAILED"
     
         if cmd == CMD_ACK_SUCCESS:
-            return int.from_bytes(pub_x, 'big'), int.from_bytes(pub_y, 'big')   
+            return int.from_bytes(pub_x, 'big'), int.from_bytes(pub_y, 'big'), chaincode   
         
-        return 0, 0
+        return 0, 0, 0
     
     
     def send_sign_tx(self, in_key_num_pubkey, out_addr_160, out_satoshi, change_key_num, change_satoshi):

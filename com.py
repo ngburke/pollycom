@@ -49,6 +49,7 @@ CMD_GET_PUBLIC_KEY    = 3   # SUCCESS, INVALID
 CMD_SIGN_TX           = 4   # SUCCESS, INVALID
 CMD_PREV_TX           = 5   # SUCCESS, INVALID
 CMD_GET_SIGNED_TX     = 6   # SUCCESS, INVALID, USER, DENIED, BUSY
+CMD_FW_DOWNLOAD       = 8   # SUCCESS, INVALID
 
 CMD_SET_MASTER_SEED   = 11  # SUCCESS, INVALID
 
@@ -396,7 +397,38 @@ class PollyCom:
                 
             time.sleep(0.5)
 
+    def send_fw_download(self, fwfile):
+        """
+        Sends the FW download command to update the device FW.
+        
+        Throws FileNotFoundError if the file passed in does not exist
+        
+        file_handle - path to and file name of the FW image to download.
+        
+        Returns True if succeeded, False otherwise.
+        """
+        
+        with open(fwfile, "rb") as f:
 
+            fw_id = unpack('I', f.read(4))
+                        
+            if fw_id[0] != 0xdeadbeef :
+                print(hex(fw_id[0]))
+                return False;
+            
+            f.seek(0);
+            
+            fwdata = f.read()
+                        
+            # Pack the command header and prev tx
+            #data = pack('<HB' , len(fwdata) + 1, CMD_FW_DOWNLOAD) + fwdata
+            data = pack('<HB' , 65534 + 1, CMD_FW_DOWNLOAD) + fwdata
+    
+            # Send
+            self.send_data(data, stream = True)
+
+
+        
     def get_cmd_time(self):
         """
         Returns the time in seconds to execute the last command.

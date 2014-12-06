@@ -94,7 +94,7 @@ class PollyCom:
     KEY_CHAIN   = 2
     KEY_ADDRESS = 3
     
-    def __init__(self, usbscan = False):
+    def __init__(self, usbscan = True):
         
         # Tracks time to execute commands on Polly 
         self.t = 0
@@ -186,12 +186,12 @@ class PollyCom:
         """
         
         # Send
-        data = pack('<HB', CMD_SIMPLE_BYTES, CMD_RESET)
+        data = pack('<IB', CMD_SIMPLE_BYTES, CMD_RESET)
         self.send_data(data)
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytes(data))
+        cmd_bytes, cmd = unpack('<IB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd       == CMD_ACK_SUCCESS, "send_reset : FAILED"
@@ -202,12 +202,12 @@ class PollyCom:
         """
     
         # Send
-        data = pack('<HB', CMD_SIMPLE_BYTES, CMD_IDENTIFY)
+        data = pack('<IB', CMD_SIMPLE_BYTES, CMD_IDENTIFY)
         self.send_data(data)
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd, idstr = unpack('<HB16s', bytes(data))
+        cmd_bytes, cmd, idstr = unpack('<IB16s', bytes(data))
     
         assert cmd_bytes == CMD_IDENTIFY_RESP_BYTES and\
                cmd       == CMD_ACK_SUCCESS, "send_get_id : FAILED"
@@ -228,12 +228,12 @@ class PollyCom:
         assert len(wordlist) <= CMD_SET_MASTER_SEED_MAX_BYTES, "seed too long, must have invalid words"
 
         # Send
-        data = pack('<HB' + str(len(wordlist)) + 's', 1 + len(wordlist), CMD_SET_MASTER_SEED, bytes(wordlist, 'utf-8'))
+        data = pack('<IB' + str(len(wordlist)) + 's', 1 + len(wordlist), CMD_SET_MASTER_SEED, bytes(wordlist, 'utf-8'))
         self.send_data(data)
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytes(data))
+        cmd_bytes, cmd = unpack('<IB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd       == CMD_ACK_SUCCESS, "send_set_master_seed : FAILED"
@@ -254,13 +254,13 @@ class PollyCom:
         assert address < 0x80000000, "hardened address keys are not supported"
         
         # Send
-        data = pack('<HBBBBL', CMD_GET_PUBLIC_KEY_BYTES, CMD_GET_PUBLIC_KEY, keytype, account, chain, address)
+        data = pack('<IBBBBL', CMD_GET_PUBLIC_KEY_BYTES, CMD_GET_PUBLIC_KEY, keytype, account, chain, address)
         self.send_data(data)
     
         # Receive
         data = self.get_data()
     
-        cmd_bytes, cmd, pub_x, pub_y, chaincode = unpack('HB32s32s32s', bytes(data))
+        cmd_bytes, cmd, pub_x, pub_y, chaincode = unpack('IB32s32s32s', bytes(data))
     
         assert cmd_bytes == CMD_GET_PUBLIC_KEY_RESP_BYTES, "send_get_public_key : FAILED"
     
@@ -302,14 +302,14 @@ class PollyCom:
             data = data + pack('<BBIQ', 0, 1, change_key_num, change_satoshi)
     
         # Command id and number of bytes
-        data = pack('<HB', len(data) + 1, CMD_SIGN_TX) + data
+        data = pack('<IB', len(data) + 1, CMD_SIGN_TX) + data
     
         # Send
         self.send_data(data)
     
         # Receive
         data = self.get_data()
-        cmd_bytes, cmd = unpack('<HB', bytes(data))
+        cmd_bytes, cmd = unpack('<IB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd       == CMD_ACK_SUCCESS, "send_sign_tx : FAILED"
@@ -344,7 +344,7 @@ class PollyCom:
     
         # Pack the command header and prev tx
         send_len = len(prev_tx_data) + len(data) + 1
-        data = pack('<HB' , send_len, CMD_PREV_TX) + data + pack(str(len(prev_tx_data)) + 's', prev_tx_data)
+        data = pack('<IB' , send_len, CMD_PREV_TX) + data + pack(str(len(prev_tx_data)) + 's', prev_tx_data)
     
         # Send
         self.send_data(data, stream = True)
@@ -352,7 +352,7 @@ class PollyCom:
         # Receive
         data = self.get_data()
     
-        cmd_bytes, cmd = unpack('<HB', bytes(data))
+        cmd_bytes, cmd = unpack('<IB', bytes(data))
     
         assert cmd_bytes == CMD_SIMPLE_BYTES and\
                cmd       == CMD_ACK_SUCCESS, "send_prev_tx : FAILED"
@@ -371,18 +371,18 @@ class PollyCom:
         while True:
             
             # Send
-            data = pack('<HB', CMD_SIMPLE_BYTES, CMD_GET_SIGNED_TX)
+            data = pack('<IB', CMD_SIMPLE_BYTES, CMD_GET_SIGNED_TX)
             self.send_data(data)
             
             # Receive
             data = self.get_data()
-            cmd_bytes, cmd = unpack('<HB', bytes(data[0:3]))
+            cmd_bytes, cmd = unpack('<IB', bytes(data[0:5]))
             
             # SUCCESS, INVALID, USER, DENIED, BUSY
             
             if cmd == CMD_ACK_SUCCESS:
                 # Strip away the command and command bytes, just return the signed tx
-                return bytes(data[3:(3 + cmd_bytes)])
+                return bytes(data[5:(5 + cmd_bytes)])
             
             elif cmd == CMD_ACK_INVALID:
                 assert 0, "send_get_signed_tx: invalid response, command incorrect"
@@ -421,13 +421,19 @@ class PollyCom:
             fwdata = f.read()
                         
             # Pack the command header and prev tx
-            #data = pack('<HB' , len(fwdata) + 1, CMD_FW_DOWNLOAD) + fwdata
-            data = pack('<HB' , 65534 + 1, CMD_FW_DOWNLOAD) + fwdata
+            data = pack('<IB' , len(fwdata) + 1, CMD_FW_DOWNLOAD) + fwdata
     
             # Send
             self.send_data(data, stream = True)
 
-
+            # Receive
+            data = self.get_data()
+    
+            cmd_bytes, cmd = unpack('<IB', bytes(data))
+    
+            assert cmd_bytes == CMD_SIMPLE_BYTES and\
+                   cmd       == CMD_ACK_SUCCESS, "send_prev_tx : FAILED"
+                   
         
     def get_cmd_time(self):
         """
@@ -458,10 +464,10 @@ class PollyCom:
             
         ctrl_byte = ctrl_start
 
-        # The command byte count in the data does not include itself, hence the +2
-        data_bytes_remain = (data[1] << 8) + data[0] + 2;
+        # The command byte count in the data does not include the count field itself, hence the +4
+        data_bytes_remain = (data[3] << 24) + (data[2] << 16) + (data[1] << 8) + data[0] + 4;
         data_offset       = 0
-        
+                
         # Send out the data
         while (data_bytes_remain > 0):
 
@@ -478,8 +484,10 @@ class PollyCom:
             if PollyCom.devtype == 'usb': 
                 packet = b'\x00' + packet
     
-            PollyCom.dev.write(packet)
-    
+            if PollyCom.dev.write(packet) != 64: raise IOError
+
+            time.sleep(0.01)
+        
             data_offset       += data_bytes
             data_bytes_remain -= data_bytes
             
@@ -505,7 +513,7 @@ class PollyCom:
         assert tmp[0] == CTRL_START, "invalid control token, expecting CTRL_START"
     
         # The command bytes count, plus the command bytes count field itself
-        data_bytes = (tmp[2] << 8) + tmp[1] + 2 
+        data_bytes = (tmp[4] << 24) + (tmp[3] << 16) + (tmp[2] << 8) + tmp[1] + 4
         
         # Read in the rest
         while True:

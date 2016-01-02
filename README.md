@@ -1,7 +1,9 @@
 pollycom
 ========
 
-Communication module for interfacing with Polly, a deterministic Bitcoin hardware wallet adhering to [BIP32]. Polly is still in development, more information to come.
+Communication module for interfacing with Polly, a deterministic Bitcoin hardware wallet adhering to [BIP32]. 
+
+Polly development has been put on hold indefinitely. See the project wiki page for more information (https://github.com/ngburke/polly/wiki).
 
 Tested with Python 3.3.
 
